@@ -55,7 +55,43 @@ def build_few_shot_prompt(labeled_examples: list[dict], description: str) -> str
 
     Before writing code, complete specs/classifier-spec.md.
     """
-    return ""
+    lines = [
+        "You are classifying podcast episodes by their structural format.",
+        "Classify the episode into exactly one of these four labels:",
+        "",
+        "- interview: a conversation between a host and one or more guests",
+        "- solo: a single host speaking from memory, experience, or opinion — no guests,",
+        "  no assembled external sources",
+        "- panel: multiple guests with roughly equal speaking time, often debating or",
+        "  discussing a topic together",
+        "- narrative: a story assembled from external sources — interviews, archival",
+        "  audio, reporting — with a clear narrative arc",
+        "",
+        "Classify by structural format, not topic. Ignore marketing language in descriptions.",
+        "",
+    ]
+
+    if labeled_examples:
+        lines.append("Here are labeled examples:")
+        lines.append("")
+        for ex in labeled_examples:
+            lines.append(f"Title: {ex['title']}")
+            lines.append(f"Description: {ex['description']}")
+            lines.append(f"Label: {ex['label']}")
+            lines.append("---")
+        lines.append("")
+
+    lines += [
+        "Now classify this episode:",
+        "",
+        f"Description: {description}",
+        "",
+        "Respond in exactly this format (two lines, nothing else):",
+        "Label: <one of: interview, solo, panel, narrative>",
+        "Reasoning: <one sentence explaining why>",
+    ]
+
+    return "\n".join(lines)
 
 
 def classify_episode(description: str, labeled_examples: list[dict]) -> dict:
@@ -76,7 +112,31 @@ def classify_episode(description: str, labeled_examples: list[dict]) -> dict:
 
     Before writing code, complete specs/classifier-spec.md.
     """
-    return {
-        "label": None,
-        "reasoning": "Classifier not yet implemented. Complete Milestone 2.",
-    }
+    try:
+        prompt = build_few_shot_prompt(labeled_examples, description)
+
+        response = _client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=250,
+        )
+
+        text = response.choices[0].message.content.strip()
+
+        label = "unknown"
+        reasoning = text
+
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.lower().startswith("label:"):
+                label = stripped[len("label:"):].strip().lower()
+            elif stripped.lower().startswith("reasoning:"):
+                reasoning = stripped[len("reasoning:"):].strip()
+
+        if label not in VALID_LABELS:
+            label = "unknown"
+
+        return {"label": label, "reasoning": reasoning}
+
+    except Exception as e:
+        return {"label": "unknown", "reasoning": f"Error: {e}"}

@@ -91,10 +91,17 @@ the format below:" followed by the output format you chose.
 **What output format should you request from the LLM?**
 
 ```
-[blank — you need to parse the response in classify_episode(). What format
-makes parsing reliable? Think about: a single label on its own line?
-A structured format like "Label: X / Reasoning: Y"? JSON?
-What are the tradeoffs?]
+Request a two-line structured format:
+
+  Label: <one of: interview, solo, panel, narrative>
+  Reasoning: <one sentence explaining why>
+
+Tradeoffs considered:
+- JSON would be maximally parseable but models often wrap it in markdown
+  code fences, requiring extra cleanup.
+- A single label alone is easy to parse but loses the reasoning.
+- This two-line format is easy to parse (find the "Label:" line, strip it)
+  and keeps reasoning accessible without needing a JSON parser.
 ```
 
 ---
@@ -102,8 +109,12 @@ What are the tradeoffs?]
 **Edge cases to handle in the prompt:**
 
 ```
-[blank — what if labeled_examples is empty? What if the description is very
-short? How does your prompt handle these?]
+- Empty labeled_examples: skip the examples block entirely; the prompt still
+  works as a zero-shot classifier using just the task instruction.
+- Very short description (one sentence): include it as-is — the model can
+  still classify it, though with less signal. No special handling needed.
+- Description marketing language: the task instruction warns the model to
+  classify by structural format, not by how the episode is presented.
 ```
 
 ---
@@ -159,9 +170,14 @@ Extract the response text from:
 **Step 3 — Parse the response:**
 
 ```
-[blank — how do you extract the label and reasoning from the LLM's text output?
-What string operations or parsing logic do you need?
-This depends on the output format you chose in build_few_shot_prompt.]
+Split the response text by newlines. For each line:
+- If the line starts with "label:" (case-insensitive after strip()), extract
+  the value after the colon, strip whitespace, and lowercase it.
+- If the line starts with "reasoning:", extract the value after the colon
+  and strip whitespace.
+
+Default label to "unknown" and reasoning to the full raw response text
+if no matching lines are found.
 ```
 
 ---
@@ -169,8 +185,10 @@ This depends on the output format you chose in build_few_shot_prompt.]
 **Step 4 — Validate the label:**
 
 ```
-[blank — what do you do if the LLM returns a label that isn't in VALID_LABELS?
-What should label be set to?]
+After parsing, check: if label not in VALID_LABELS, set label = "unknown".
+This catches variants the model might return despite instructions — e.g.,
+"Interview" (wrong case), "interviews" (pluralized), or a free-form phrase.
+Lowercasing in Step 3 handles simple casing issues; this catches everything else.
 ```
 
 ---
@@ -178,9 +196,16 @@ What should label be set to?]
 **Step 5 — Handle errors gracefully:**
 
 ```
-[blank — what could go wrong? (Network error? Unparseable response?)
-What should the function return if something fails?
-Hint: the evaluation loop runs 20 calls — one bad response shouldn't crash everything.]
+Wrap the entire function body in try/except Exception as e.
+What could go wrong:
+- Network or API error (timeout, auth failure, rate limit)
+- Missing key in response object (unexpected API shape)
+- Completely unparseable response (no "Label:" line found → label stays "unknown")
+
+On any exception, return:
+  {"label": "unknown", "reasoning": f"Error: {str(e)}"}
+
+This keeps the evaluation loop running across all 20 episodes even if one call fails.
 ```
 
 ---
@@ -213,24 +238,31 @@ any labels you're unsure about. Annotation quality is part of the lab.
 **Test: what does the raw LLM response look like for one episode?**
 
 ```
-Episode tested: [title]
-Raw response text: [paste it here]
+Episode tested: [Dr. Priya Nair on Adolescent Mental Health After the Pandemic]
+Raw response text: [Label: interview
+Reasoning: This episode features a conversation between the host and a single guest, Dr. Priya Nair, discussing her research and expertise on a specific topic.
+]
 ```
 
 **How did you parse the label out of the response?**
 
 ```
-[describe the string operations — strip, split, lower, etc.]
+Iterated over each line of the response text. For each line, called strip()
+then checked if it started with "label:" using .lower(). Extracted the substring
+after the colon and called .strip().lower() on it. Applied the same prefix check
+for "reasoning:". Defaulted label to "unknown" and reasoning to the full raw
+text if neither prefix was found.
 ```
 
 **Did any episodes return `"unknown"`? If so, why?**
 
 ```
-[yes / no — if yes, what did the raw response look like?]
+No. The model returned a valid label from VALID_LABELS for every episode tested.
 ```
 
 **One thing about the output format that surprised you:**
 
 ```
-[your answer here]
+Nothing surprising — the model followed the two-line format instructions precisely,
+with no extra explanation, preamble, or markdown wrapping.
 ```
